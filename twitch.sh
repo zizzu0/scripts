@@ -2,7 +2,6 @@
 # watch a twitch stream via mpv and irssi
 # requires streamlink, mpv, irssi, a client_id and an oauth
 # usage: twitch.sh channelname
-# irssi does not automatically switch to the channel, type /window 2 to focus it.
 
 if [ -z "$1" ];then echo "Usage $0 channelname"; exit 1; fi
 
@@ -54,6 +53,19 @@ channels = (
 settings = {
   core = {
     nick = 'YOURNICK';
+  }
+}
+
+windows = {
+  1 = {
+    items = (
+      {
+        type = 'CHANNEL';
+        chat_type = 'IRC';
+        name = '#$channel';
+        tag = 'twitch';
+      }
+    );
   }
 }
 
