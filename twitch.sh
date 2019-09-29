@@ -33,7 +33,7 @@ IRSSICONF="servers = (
     address = 'irc.twitch.tv';
     chatnet = 'Twitch';
     port = '6697';
-    password = 'oauth:46sh4wje1xxvkejs1z9peqrs5ld6r4';
+    password = 'oauth:YOUROAUTH';
     use_ssl = 'yes';
     ssl_verify = 'no';
     autoconnect = 'yes';
@@ -53,7 +53,7 @@ channels = (
 
 settings = {
   core = {
-    nick = 'whimsicaltraveler2463';
+    nick = 'YOURNICK';
   }
 }
 
