@@ -26,7 +26,7 @@ function _start() {
 	fi
 
 	echo "Assigning ip to wlan"
-	if [ -z `ip a s $INTF | grep -o 10\.42\.0\.1` ];then
+	if [ -z `ip a s $INTF | grep -o 10\.0\.0\.1` ];then
 		sudo ip addr add 10.0.0.1/24 dev $INTF
 	else
 		echo "ip address already assigned"
