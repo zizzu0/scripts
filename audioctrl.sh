@@ -61,6 +61,8 @@ function usage() {
     exit 1
 }
 
+! [ $# == 0 ] || usage
+
 sinks=$(get_sinks)
 
 if [ "$1" == "-l" ]
