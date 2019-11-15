@@ -12,7 +12,7 @@ Pure bash internet ip grabber.
 ### qemu-disk-tool.sh
 All the nice things you can do with qemu disk images. Create, snapshot, convert, mount.
 
-### qemu-disk-tool.sh
+### qemu-script-tool.sh
 Generate a qemu script for a linux guest with 3d accelleration using virgl as video option (screen resizing works just type xrandr -s 0 in a terminal after the resizing of the window) and user mode or macvtap as networking.
 
 ### twitch.sh
