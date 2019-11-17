@@ -53,7 +53,7 @@ QEMU="qemu() {
 	-drive file=DRIVE \\
 	-drive media=cdrom,file=ISO,readonly \\
 	-enable-kvm -machine type=pc,accel=kvm \\
-        -cpu host -smp CORES,sockets=SOCKETS,cores=CORES,threads=THREADS \\
+        -cpu host -smp sockets=SOCKETS,cores=CORES,threads=THREADS \\
         -m MEM \\
         NET \\
 	-audiodev pa,id=pulse,server=/run/user/\$(id -u)/pulse/native \\
