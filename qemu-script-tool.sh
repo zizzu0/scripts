@@ -15,12 +15,20 @@
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# TOOLS:
+#
+# Scale resolution inside the guest:
+# xrandr | grep -oP "^ +\d+x\d+" | awk '{print NR-1,$0}'
+# then xrandr -S NUMBER
+
 set -euo pipefail
 
-VERSION="0.1"
-red=$(tput setaf 1)
-green=$(tput setaf 2)
-yellow=$(tput setaf 3)
+AUTHOR="zizzu"
+VERSION="0.2"
+# man tput and terminfo
+red=$(tput bold && tput setaf 1)
+green=$(tput bold && tput setaf 2)
+yellow=$(tput bold && tput setaf 3)
 normal=$(tput sgr0)
 
 MACVTAPSETUP="setup_tap() {
@@ -44,22 +52,28 @@ MACVTAP="-net nic,model=virtio,macaddr=ADDR -net tap,fd=3 3<>/dev/tap\$(cat /sys
 LOCALNET="-netdev user,id=user0,net=192.168.20.0/24,dhcpstart=192.168.20.20"
 LOCALNET2="-device e1000,netdev=user0"
 
+NORMAL="-display gtk -vga qxl -usbdevice tablet"
+ACCELL="-display sdl,gl=on -vga none -device virtio-vga,xres=1440,yres=900"
+
+SHARED="-fsdev local,security_model=passthrough,id=fsdev0,path=FOLDER -device virtio-9p-pci,id=fs0,fsdev=fsdev0,mount_tag=hostshare"
+
 QEMU="qemu() {
     /usr/bin/qemu-system-x86_64 \\
         -show-cursor \\
         -no-user-config -nodefaults \\
         -rtc base=utc,driftfix=slew \\
-        -bios /usr/share/qemu/bios.bin \\
-	-drive file=DRIVE \\
-	-drive media=cdrom,file=ISO,readonly \\
-	-enable-kvm -machine type=pc,accel=kvm \\
+        -bios BIOS \\
+        -drive file=DRIVE \\
+        -drive media=cdrom,file=ISO,readonly \\
+        -enable-kvm -machine type=pc,accel=kvm \\
         -cpu host -smp sockets=SOCKETS,cores=CORES,threads=THREADS \\
         -m MEM \\
         NET \\
-	-audiodev pa,id=pulse,server=/run/user/\$(id -u)/pulse/native \\
-	-soundhw hda \\
-	-display sdl,gl=on -vga none -device virtio-vga,xres=1440,yres=900 \\
-	-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
+        -audiodev pa,id=pulse,server=/run/user/\$(id -u)/pulse/native \\
+        -soundhw hda \\
+        DISPLAY \\
+        SHARED \\
+        -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
 }
 qemu
 "
@@ -93,9 +107,41 @@ function readvalue () {
     echo $value
 }
 
+# repeat string number
+function _repeat () {
+    _REPEAT=$1
+    while (( ${#_REPEAT} < $2 )) ## Loop until string exceeds desired length
+    do
+        _REPEAT=$_REPEAT$_REPEAT$_REPEAT # 3 seems to be the optimum number
+    done
+    _REPEAT=${_REPEAT:0:$2} # Trim to desired length
+}
+
+function repeat() {
+    _repeat "$@"
+    printf "%s\n" "$_REPEAT"
+}
+
+function msg () {
+    OIFS=$IFS
+    IFS=$'\n'
+    array=$( printf "%b" "$1" )
+    longest=0
+    for line in $array;do
+        len=${#line}
+        [ $len -gt $longest ] && longest=$len
+    done
+    _repeat "${2:-#}" $(( ${longest} + 6 ))  # $(( ${#1} + 6 ))
+    printf '%s\n' "$_REPEAT"
+    for line in $array;do 
+        printf '%2.2s %b %2.2s\n' " " "$green$line$normal" " "
+    done
+    printf '%s\n' "$_REPEAT"
+    IFS=$OIFS
+}
+
 function cpuinfo () {
-    printf "This machine cpu info:\n" >&2
-    lscpu | grep -E '^Thread|^Core|^Socket|^CPU\('
+    msg "This machine cpu info:\n$(lscpu | grep -E '^Thread|^Core|^Socket|^CPU\(')" -
 }
 
 function iso () {
@@ -113,16 +159,17 @@ function iso () {
 function new_drive () {
     while true;do
         read -ep "Directory for the disk file (tab autocomplete): " dir
+        [ "$dir" == "" ] && continue
         local dir=$(realpath -m "$dir")
         [ -d "$dir" ] && [ -w "$dir" ] && break
         printe "Invalid directory $dir!" 
     done
-    
+
     local disk_size=$(readvalue "Disk size in GB: ")
     local path="$dir/$1.qcow2"
 
     [ -f "$path" ] && printe "File $path exists!" && exit 1 
-    
+
     printw "Creating disk file as $path size $disk_size GB..."
     qemu-img create -f qcow2 "$path" "${disk_size}G" >&2
     printk "Created $path"
@@ -174,7 +221,7 @@ function select_group () {
 function select_iface () {
     printk "Select interface:"
     print_ifaces
-    
+
     local ifaces=$(get_ifaces)
     printf -v ifaces "%s\n" "${ifaces[@]}" #array to string
     while true; do
@@ -203,10 +250,10 @@ function macvtap () {
 }
 
 function share_ports () {
-    printk "You can now forward tcp/udp incoming connections to a port on the guest\n\
+    msg "You can now forward tcp/udp incoming connections to a port on the guest\n\
 this allow for example using servers in the guest via the loopback interface\n\
 the format is tcp/udp:address:port-:port separated by spaces\n\
-Es: tcp:127.0.0.1:5000-:22 udp:127.0.0.1:5001-:23"
+Es: tcp:127.0.0.1:5000-:22 udp:127.0.0.1:5001-:23" -
 
     while true;do
         read -e -p "Port forwarding rules (leave empty to skip): " ports
@@ -224,7 +271,10 @@ Es: tcp:127.0.0.1:5000-:22 udp:127.0.0.1:5001-:23"
 }
 
 function network_type () {
-    printk "Select networking, macvtap does not work on wireless devices"
+    msg  "Select networking:\n\
+none = no network at all,\n\
+user = uses host networking, can share guest ports on the host network\n\
+macvtap = exposed on the host network, does not work on wireless devices" -
     while true;do
         read -e -p "Networking (none, user, macvtap): " -i "user" net
        [[ "$net" =~ ^none$|^user$|^macvtap$ ]] && break
@@ -302,12 +352,72 @@ function get_iface_type () {
     return 3
 }
 
+function display_type () {
+    msg "Select graphics, normal or sdl with accelleration\n\
+qemu is not always compiled with sdl, depends on distribution\n\
+opensuse default to yes while ubuntu does not" -
+    while true;do
+        read -e -p "Display (normal, sdl): " -i "normal" disp
+       [[ "$disp" =~ ^normal$|^sdl$ ]] && break
+    done
+
+    case $disp in
+        normal )
+           QEMU="$(sed "s| DISPLAY| $NORMAL|" <<< "$QEMU")"
+           ;; 
+        sdl )
+           QEMU="$(sed "s| DISPLAY| $ACCELL|" <<< "$QEMU")" 
+           ;;
+    esac
+}
+
+function shared_folder () {
+    msg "You can now share a folder between the host and the guest\n\
+this works only for linux guests, this script will NOT adjust the folder permissions\n\
+to be able to write inside the folder from the guest, you need to chmod 777 the folder\n\
+on the host.
+to mount the folder inside the guest, as root, type :
+
+mount -t 9p -o trans=virtio,versions=9p2000.L hostshare guest_directory_here" -
+
+    while true;do
+        read -ep "Select a folder to share (tab autocomplete): " dir
+	[ "$dir" == "" ] && break
+        local dir=$(realpath -m "$dir")
+        [ -d "$dir" ] && [ -w "$dir" ] && break
+        printe "Invalid directory $dir!" 
+    done
+
+    case "$dir" in
+        "" )
+            QEMU="$(sed "/^ *SHARED.*/d" <<< "$QEMU")"
+            ;;
+        * )
+            SHARED="$(sed "s|=FOLDER|=$dir|" <<< "$SHARED")"
+            QEMU="$(sed "s| SHARED| $SHARED|" <<< "$QEMU")"
+            ;;
+    esac
+}
+
+function search_bios () {
+    OIFS=$IFS
+    IFS=$'\n'
+    bios=""
+    for path in $(qemu-system-x86_64 -L help);do
+        [ -d "$path" ] && [ -f "$path/bios.bin" ] && bios="$path/bios.bin" && break
+    done
+    IFS=$OIFS
+    [ "$bios" == "" ] && printk "Bios file not found!" && exit 1
+    printk "Found bios.bin in "$path/bios.bin""
+    QEMU="$(sed "s| BIOS| $bios|" <<< "$QEMU")"
+}
+
 function saveas () {
     while true;do
         read -e -p "Save as: " -i "$1" name
         path="$(realpath -m ${name})"
         [[ "$path" =~ ^.*/ ]] && dir="$BASH_REMATCH"
-    
+
         if test -d "$path" ; then
             printe "Invalid file $path is a directory" ; continue
         elif test ! -e "$dir" ; then
@@ -335,9 +445,13 @@ function saveas () {
     done
 }
 
-printk "$0 $VERSION\n"
+clear
+
+msg "Welcome to $0 $VERSION by $AUTHOR\npress Ctrl+C to exit in any moment" -
 
 read -p "Machine name: " machine
+
+search_bios
 
 iso=$(iso)
 drive=$(new_drive $machine)
@@ -346,7 +460,9 @@ sockets=$(readvalue "Cpu sockets: ")
 cores=$(readvalue "Cpu cores: ")
 threads=$(readvalue "Cpu threads: ")
 mem=$(readvalue "Memory size in MB: ")
+display_type
 network_type
+shared_folder
 
 printk "Generating script..."
 saveas "$machine.sh"
