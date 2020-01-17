@@ -17,14 +17,16 @@
 
 # TOOLS:
 #
-# Scale resolution inside the guest:
+# Scale resolution inside the guest: (no needed anymore, using virtio-vga on all the options)
 # xrandr | grep -oP "^ +\d+x\d+" | awk '{print NR-1,$0}'
 # then xrandr -S NUMBER
+#
+# 
 
 set -euo pipefail
 
 AUTHOR="zizzu"
-VERSION="0.2"
+VERSION="0.3"
 # man tput and terminfo
 red=$(tput bold && tput setaf 1)
 green=$(tput bold && tput setaf 2)
@@ -52,19 +54,25 @@ MACVTAP="-net nic,model=virtio,macaddr=ADDR -net tap,fd=3 3<>/dev/tap\$(cat /sys
 LOCALNET="-netdev user,id=user0,net=192.168.20.0/24,dhcpstart=192.168.20.20"
 LOCALNET2="-device e1000,netdev=user0"
 
-NORMAL="-display gtk -vga qxl -usbdevice tablet"
-ACCELL="-display sdl,gl=on -vga none -device virtio-vga,xres=1440,yres=900"
+CONSOLE="-nographic -vga virtio -serial mon:stdio"
+# if virtio-vga does not work in normal graphic mode use this line
+#NORMAL="-display gtk -vga qxl -usb -device usb-ehci,id=ehci -device usb-tablet,bus=usb-bus.0"
+NORMAL="-display gtk -vga none -device virtio-vga -usb -device usb-ehci,id=ehci -device usb-tablet,bus=usb-bus.0"
+#ACCELL="-display sdl,gl=on -vga none -device virtio-vga,xres=1440,yres=900"
+ACCELL="-display sdl,gl=on -vga none -device virtio-vga -usb -device usb-ehci,id=ehci -device usb-tablet,bus=usb-bus.0"
 
 SHARED="-fsdev local,security_model=passthrough,id=fsdev0,path=FOLDER -device virtio-9p-pci,id=fs0,fsdev=fsdev0,mount_tag=hostshare"
 
+#-drive file=DRIVE
+#-drive media=cdrom,file=ISO,readonly
+#-rtc base=utc,driftfix=slew
 QEMU="qemu() {
     /usr/bin/qemu-system-x86_64 \\
         -show-cursor \\
+        -parallel none \\
         -no-user-config -nodefaults \\
-        -rtc base=utc,driftfix=slew \\
+        -rtc clock=host,base=localtime \\
         -bios BIOS \\
-        -drive file=DRIVE \\
-        -drive media=cdrom,file=ISO,readonly \\
         -enable-kvm -machine type=pc,accel=kvm \\
         -cpu host -smp sockets=SOCKETS,cores=CORES,threads=THREADS \\
         -m MEM \\
@@ -73,6 +81,11 @@ QEMU="qemu() {
         -soundhw hda \\
         DISPLAY \\
         SHARED \\
+        -drive media=cdrom,file=ISO,readonly,id=cd1,if=none \\
+        -device ide-cd,bus=ide.1,drive=cd1 \\
+        -object iothread,id=io1 \\
+        -device virtio-blk-pci,drive=rootfs,iothread=io1 \\
+        -drive file=DRIVE,id=rootfs,if=none,cache=none,aio=threads \\
         -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
 }
 qemu
@@ -353,15 +366,22 @@ function get_iface_type () {
 }
 
 function display_type () {
-    msg "Select graphics, normal or sdl with accelleration\n\
-qemu is not always compiled with sdl, depends on distribution\n\
-opensuse default to yes while ubuntu does not" -
+    msg "Select graphics, console, normal or sdl with accelleration\n\
+SDL NOTE: qemu is not always compiled with sdl, depends on distribution\n\
+es: opensuse default to yes while ubuntu does not.\n\
+CONSOLE NOTE: Console mode use the terminal as if a serial connection,\n\
+if no output is shown append console=ttyS0,115200 to the guest kernel command line\n\
+ctrl+c will not terminate the guest.\n\
+Use ctrl+a h for help on switching between the console and monitor" -
     while true;do
-        read -e -p "Display (normal, sdl): " -i "normal" disp
-       [[ "$disp" =~ ^normal$|^sdl$ ]] && break
+        read -e -p "Display (console, normal, sdl): " -i "normal" disp
+       [[ "$disp" =~ ^console$|^normal$|^sdl$ ]] && break
     done
 
     case $disp in
+        console )
+           QEMU="$(sed "s| DISPLAY| $CONSOLE|" <<< "$QEMU")"
+           ;; 
         normal )
            QEMU="$(sed "s| DISPLAY| $NORMAL|" <<< "$QEMU")"
            ;; 
